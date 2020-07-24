@@ -96,3 +96,5 @@ docs_repositories()
 load("@docs//:docs_deps.bzl", docs_deps = "deps")
 
 docs_deps(is_top_level = True)
+
+# Rust-analyzer rules

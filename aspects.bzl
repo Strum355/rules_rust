@@ -84,29 +84,63 @@ rust_project_aspect = aspect(
 def create_crate(target):
   crate = dict()
   crate["name"] = target.name
+  crate["ID"] = target.name
   crate["root_module"] = target.root
   crate["edition"] = target.edition
   deps = []
   for dep in target.dependencies:
-    crate_dep = dict()
-    # We fill in the crate id in the second iteration over the crates
-    crate_dep["crate"] = None
-    crate_dep["name"] = dep.name
-    deps.append(crate_dep)
+    deps.append({
+        "name": dep.name,
+        "ID": dep.name,
+    })
+
+  # TODO add no_std support
+  std_dep = dict()
+  std_dep["ID"] = "SYSROOT-std"
+  std_dep["name"] = "std"
+  deps.append(std_dep)
+
   crate["deps"] = deps
   crate["cfg"] = target.cfgs
   crate["env"] = target.env
   return crate
 
-def populate_sysroot(ctx, idx, crate_mapping, output):
-  #TODO fill in sysroot
+def populate_sysroot(ctx, crate_mapping, output):
+  # Hardcode the relevant sysroot structure for now.
+  # Anything smarter than this requires a Toml parser
+
+  sysroot = ["alloc", "core", "std", "panic_abort", "unwind"]
+  sysroot_deps_map = {
+      "alloc": ["core"],
+      "std": ["alloc", "core", "panic_abort", "unwind"],
+  }
+
   root = ctx.attr.exec_root
   info = ctx.toolchains["@io_bazel_rules_rust//rust:toolchain"]
 
-  for lib in info.rust_lib.files.to_list():
-    print(root + "/" + lib.path)
+  idx = 0
+  for sysroot_crate in sysroot:
+    crate = dict()
+    crate["ID"] = "SYSROOT-" + sysroot_crate
+    crate["name"] = sysroot_crate
+    # TODO better way of getting source. gotta be a way of getting
+    # the root of a depset or something?
+    crate["root_module"] =  root + "/" + info.rustc_src.files.to_list()[0].dirname + "/../../lib" + sysroot_crate + "/lib.rs"
+    crate["edition"] = "2018"
+    crate["cfg"] = []
+    crate["env"] = {}
+    crate["deps"] = []
+    if sysroot_crate in sysroot_deps_map.keys():
+      for dep in sysroot_deps_map[sysroot_crate]:
+        crate["deps"].append({
+            "ID": "SYSROOT-" + dep,
+            "name": dep,
+        })
+    crate_mapping[crate["ID"]] = idx
+    idx += 1
+    output["crates"].append(crate)
 
-  return
+  return idx
 
 def _rust_project_impl(ctx):
   output = dict()
@@ -114,12 +148,13 @@ def _rust_project_impl(ctx):
 
   crate_mapping = dict()
 
-  idx = 0
-  populate_sysroot(ctx, idx, crate_mapping, output)
+  # idx starts after the sysroot is already populated
+  idx = populate_sysroot(ctx, crate_mapping, output)
+
   for target in ctx.attr.targets:
     for dep in target[TargetInfo].dependencies:
       crate = create_crate(dep)
-      crate_mapping[crate["name"]] = idx
+      crate_mapping[crate["ID"]] = idx
       idx += 1
       output["crates"].append(crate)
   crate = create_crate(target[TargetInfo])
@@ -129,7 +164,10 @@ def _rust_project_impl(ctx):
   # for their index.
   for crate in output["crates"]:
     for dep in crate["deps"]:
-      dep["crate"] = crate_mapping[dep["name"]]
+      crate_id = dep["ID"]
+      dep["crate"] = crate_mapping[crate_id]
+      # clean up ID for cleaner output
+      dep.pop("ID", None)
 
   ctx.actions.write(output = ctx.outputs.filename, content = struct(**output).to_json())
 

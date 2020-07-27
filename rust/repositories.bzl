@@ -199,22 +199,22 @@ def BUILD_for_clippy(target_triple):
     """Emits a BUILD file the clippy's extracted files."""
     return BUILD_for_stdlib(target_triple)
 
-def BUILD_for_rustsrc(target_triple):
-    """Emits a BUILD file the rustsrc .tar.gz."""
+def BUILD_for_rustc_src():
+    """Emits a BUILD file for the rustc src extracted files."""
 
-    system = triple_to_system(target_triple)
     return """
 load("@io_bazel_rules_rust//rust:toolchain.bzl", "rust_toolchain")
 
 filegroup(
-    name = "rustsrc",
-    srcs = ["bin/rustfmt{binary_ext}"],
+    name = "rustc_src",
+    srcs = glob(
+        [
+            "**/*.rs",
+        ],
+    ),
     visibility = ["//visibility:public"],
 )
-
-""".format(
-        binary_ext = system_to_binary_ext(system),
-    )
+"""
 
 def BUILD_for_stdlib(target_triple):
     """Emits a BUILD file the stdlib .tar.gz."""
@@ -258,6 +258,7 @@ rust_toolchain(
     rustfmt = "@{workspace_name}//:rustfmt_bin",
     clippy_driver = "@{workspace_name}//:clippy_driver_bin",
     rustc_lib = "@{workspace_name}//:rustc_lib",
+    rustc_src  = "@{workspace_name}//:rustc_src",
     binary_ext = "{binary_ext}",
     staticlib_ext = "{staticlib_ext}",
     dylib_ext = "{dylib_ext}",
@@ -455,18 +456,23 @@ def _load_rust_src(ctx):
     Returns:
       The BUILD file contents for this compiler and compiler library
     """
-    target_triple = ctx.attr.exec_triple
-    load_arbitrary_tool(
-        ctx,
-        iso_date = ctx.attr.iso_date,
-        param_prefix = "src_",
-        target_triple = target_triple,
-        tool_name = "src",
-        tool_subdirectory = "src",
-        version = ctx.attr.rustfmt_version,
-    )
+    version = ctx.attr.version
+    static_rust = ctx.os.environ["STATIC_RUST_URL"] if "STATIC_RUST_URL" in ctx.os.environ else "https://static.rust-lang.org"
 
-    return BUILD_for_rustsrc(target_triple)
+    tool_suburl = "rustc-{}-src".format(version)
+    url = "{}/dist/{}.tar.gz".format(static_rust, tool_suburl)
+    archive_path = tool_suburl + ".tar.gz"
+    ctx.download(
+        url,
+        output = archive_path,
+        sha256 = FILE_KEY_TO_SHA.get(tool_suburl),
+    )
+    ctx.extract(
+      archive_path,
+      output = "src",
+      stripPrefix = "{}/src".format(tool_suburl),
+    )
+    return BUILD_for_rustc_src()
 
 def _load_rust_stdlib(ctx, target_triple):
     """Loads a rust standard library and yields corresponding BUILD for it
@@ -555,6 +561,7 @@ def _rust_toolchain_repository_impl(ctx):
     if ctx.attr.rustfmt_version:
         build_components.append(_load_rustfmt(ctx))
 
+    BUILD_components.append(_load_rust_src(ctx))
     # Nightly Rust builds after 2020-05-22 need the llvm-tools gzip to get the libLLVM dylib
     if ctx.attr.version == "nightly" and ctx.attr.iso_date > "2020-05-22":
         _load_llvm_tools(ctx, ctx.attr.exec_triple)

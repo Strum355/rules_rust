@@ -15,6 +15,13 @@ NIGHTLY_ISO_DATES="$(cat ./util/fetch_shas_NIGHTLY_ISO_DATES.txt)"
 RUSTFMT_TARGETS="$(cat ./util/fetch_shas_RUSTFMT_TARGETS.txt)"
 RUSTFMT_VERSIONS="$(cat ./util/fetch_shas_RUSTFMT_VERSIONS.txt)"
 
+enumerate_rust_src_keys() {
+  for VERSION in $VERSIONS
+  do
+    echo "rustc-$VERSION-src"
+  done
+}
+
 enumerate_keys() {
   for TOOL in $TOOLS
   do
@@ -60,4 +67,4 @@ emit_bzl_file_contents() {
   echo "}"
 }
 
-echo "$(emit_bzl_file_contents $(enumerate_keys) $(enumerate_rustfmt_keys))" > ./rust/known_shas.bzl
+echo "$(emit_bzl_file_contents $(enumerate_keys) $(enumerate_rust_src_keys) $(enumerate_rustfmt_keys))" > ./rust/known_shas.bzl

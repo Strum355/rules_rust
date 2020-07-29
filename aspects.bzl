@@ -123,9 +123,7 @@ def populate_sysroot(ctx, crate_mapping, output):
     crate = dict()
     crate["ID"] = "SYSROOT-" + sysroot_crate
     crate["name"] = sysroot_crate
-    # TODO better way of getting source. gotta be a way of getting
-    # the root of a depset or something?
-    crate["root_module"] =  root + "/" + info.rustc_src.files.to_list()[0].dirname + "/../../lib" + sysroot_crate + "/lib.rs"
+    crate["root_module"] =  root + "/" + info.rustc_src.label.workspace_root + "/src/lib" + sysroot_crate + "/lib.rs"
     crate["edition"] = "2018"
     crate["cfg"] = []
     crate["env"] = {}

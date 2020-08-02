@@ -33,6 +33,7 @@ TargetInfo = provider(
         'root' : 'crate root',
         'edition' : 'edition',
         'dependencies' : 'dependencies',
+        'transitive_deps' : 'closure of all transitive dependencies',
         'cfgs' : 'compilation cfgs',
         'env' : 'Environment variables, used for the `env!` macro',
     }
@@ -66,14 +67,26 @@ def _rust_project_aspect_impl(target, ctx):
   # this will always be the first in the depset
   crate_root = crate_root.files.to_list()[0].path
 
-  cfgs = ctx.rule.attr.crate_features
+  cfgs = []
+  for feature in ctx.rule.attr.crate_features:
+    cfgs.append("feature=\"" + feature + "\"")
+  for flag in ctx.rule.attr.rustc_flags:
+    # --cfg flags should be passed as well but as an atomic
+    # config, not key/value
+    if flag.startswith("--cfg"):
+      cfgs.append(flag[6:])
   env = ctx.rule.attr.rustc_env
 
   deps = []
+  transitive_deps = []
   for dep in ctx.rule.attr.deps:
     deps.append(dep[TargetInfo])
+    transitive_deps.append(dep[TargetInfo])
+    if TargetInfo not in dep:
+      continue
+    transitive_deps.extend(dep[TargetInfo].dependencies)
 
-  return [TargetInfo(name = crate_name, edition = edition, cfgs = cfgs, root= crate_root, env=env,dependencies = deps)]
+  return [TargetInfo(name = crate_name, edition = edition, cfgs = cfgs, root= crate_root, env=env,dependencies = deps, transitive_deps = transitive_deps)]
 
 rust_project_aspect = aspect(
     attr_aspects = ["deps"],
@@ -84,17 +97,28 @@ rust_project_aspect = aspect(
 def create_crate(target):
   crate = dict()
   crate["name"] = target.name
-  crate["ID"] = target.name
+  crate["ID"] = "ID-" + target.name
   crate["root_module"] = target.root
   crate["edition"] = target.edition
+  # TODO(bwb): smarter heuristic for workpace member indexing
+  crate["is_workspace_member"] = True
   deps = []
   for dep in target.dependencies:
     deps.append({
         "name": dep.name,
-        "ID": dep.name,
+        "ID": "ID-" + dep.name,
     })
 
-  # TODO add no_std support
+  alloc_dep = dict()
+  alloc_dep["ID"] = "SYSROOT-alloc"
+  alloc_dep["name"] = "alloc"
+  deps.append(alloc_dep)
+
+  core_dep = dict()
+  core_dep["ID"] = "SYSROOT-core"
+  core_dep["name"] = "core"
+  deps.append(core_dep)
+
   std_dep = dict()
   std_dep["ID"] = "SYSROOT-std"
   std_dep["name"] = "std"
@@ -125,6 +149,9 @@ def populate_sysroot(ctx, crate_mapping, output):
     crate["name"] = sysroot_crate
     crate["root_module"] =  root + "/" + info.rustc_src.label.workspace_root + "/src/lib" + sysroot_crate + "/lib.rs"
     crate["edition"] = "2018"
+    # sysroot crates are rarely modified. Mark as not a member of the workspace
+    # for faster indexing
+    crate["is_workspace_member"] = False
     crate["cfg"] = []
     crate["env"] = {}
     crate["deps"] = []
@@ -150,7 +177,7 @@ def _rust_project_impl(ctx):
   idx = populate_sysroot(ctx, crate_mapping, output)
 
   for target in ctx.attr.targets:
-    for dep in target[TargetInfo].dependencies:
+    for dep in target[TargetInfo].transitive_deps:
       crate = create_crate(dep)
       crate_mapping[crate["ID"]] = idx
       idx += 1
@@ -158,17 +185,17 @@ def _rust_project_impl(ctx):
   crate = create_crate(target[TargetInfo])
   output["crates"].append(crate)
 
-  # Go through the targets a second time and fill in their dependencies since we now have stable placement
-  # for their index.
+  # Go through the targets a second time and fill in their dependencies
+  # since we now have stable placement for their index.
   for crate in output["crates"]:
     for dep in crate["deps"]:
       crate_id = dep["ID"]
       dep["crate"] = crate_mapping[crate_id]
       # clean up ID for cleaner output
       dep.pop("ID", None)
+    crate.pop("ID", None)
 
   ctx.actions.write(output = ctx.outputs.filename, content = struct(**output).to_json())
-
 
 rust_analyzer = rule(
     attrs = {

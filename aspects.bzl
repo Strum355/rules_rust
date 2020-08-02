@@ -60,8 +60,10 @@ def _rust_project_aspect_impl(target, ctx):
       crate_root = ctx.rule.attr.srcs[0]
     else:
       for src in ctx.rule.attr.srcs:
-        # TODO check this logic
-        if src.contains("lib.rs"):
+        if ctx.rule.attr.crate_type == "bin" and src.contains("main.rs"):
+          crate_root = src
+          break
+        if ctx.rule.attr.crate_type == "lib" and src.contains("lib.rs"):
           crate_root = src
           break
   # this will always be the first in the depset
@@ -86,7 +88,14 @@ def _rust_project_aspect_impl(target, ctx):
       continue
     transitive_deps.extend(dep[TargetInfo].dependencies)
 
-  return [TargetInfo(name = crate_name, edition = edition, cfgs = cfgs, root= crate_root, env=env,dependencies = deps, transitive_deps = transitive_deps)]
+  return [TargetInfo(
+      name = crate_name,
+      edition = edition,
+      cfgs = cfgs,
+      root= crate_root,
+      env=env,
+      dependencies = deps,
+      transitive_deps = transitive_deps)]
 
 rust_project_aspect = aspect(
     attr_aspects = ["deps"],

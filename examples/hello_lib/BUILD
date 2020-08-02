@@ -7,6 +7,7 @@ load(
     "rust_library",
     "rust_test",
 )
+load("@io_bazel_rules_rust//:aspects.bzl", "rust_analyzer")
 
 rust_library(
     name = "hello_lib",
@@ -84,4 +85,10 @@ rust_doc(
 rust_doc_test(
     name = "hello_lib_doc_test",
     dep = ":hello_lib",
+)
+
+rust_analyzer(
+    name = "hello_rust_analyzer",
+    targets = [ ":hello_lib" ],
+    exec_root = "hello_lib"
 )

@@ -60,12 +60,15 @@ def _rust_project_aspect_impl(target, ctx):
       crate_root = ctx.rule.attr.srcs[0]
     else:
       for src in ctx.rule.attr.srcs:
-        if ctx.rule.attr.crate_type == "bin" and src.contains("main.rs"):
+        file_name = src.label.name
+        crate_type = ctx.rule.attr.crate_type
+        if crate_type == "bin" and file_name.endswith("main.rs"):
           crate_root = src
           break
-        if ctx.rule.attr.crate_type == "lib" and src.contains("lib.rs"):
-          crate_root = src
-          break
+        if crate_type == "rlib" or crate_type == "dylib":
+          if file_name.endswith("lib.rs"):
+            crate_root = src
+            break
   # this will always be the first in the depset
   crate_root = crate_root.files.to_list()[0].path
 

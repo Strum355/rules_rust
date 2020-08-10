@@ -22,12 +22,13 @@ to Cargo.toml files.
 
 load("@io_bazel_rules_rust//rust:private/utils.bzl", "find_toolchain")
 
+# We support only these rule kinds.
 _rust_rules = [
     "rust_library",
     "rust_binary",
 ]
 
-TargetInfo = provider(
+RustTargetInfo = provider(
     fields = {
         'name' : 'target name',
         'root' : 'crate root',
@@ -39,21 +40,10 @@ TargetInfo = provider(
     }
 )
 
-def _rust_project_aspect_impl(target, ctx):
-  # We support only these rule kinds.
-  if ctx.rule.kind not in _rust_rules:
-    return []
-
-  info = ctx.toolchains["@io_bazel_rules_rust//rust:toolchain"]
-
-  # extract the crate_root path
-  edition = ctx.rule.attr.edition
-  if not edition:
-    # TODO if edition isn't specified, default to what is in the rust toolchain
-    edition = info.default_edition
-
-  crate_name = ctx.rule.attr.name
-
+# Gets the crate_root file from the context.
+# If the file is not specified, find lib.rs or main.rs
+# in a library or binary rule respectively.
+def fetch_crate_root_file(ctx):
   crate_root = ctx.rule.attr.crate_root
   if not crate_root:
     if len(ctx.rule.attr.srcs) == 1:
@@ -69,8 +59,24 @@ def _rust_project_aspect_impl(target, ctx):
           if file_name.endswith("lib.rs"):
             crate_root = src
             break
-  # this will always be the first in the depset
+  # The rules are structured such that the crate_root path will always be
+  # the first element in the in the depset
   crate_root = crate_root.files.to_list()[0].path
+
+def _rust_project_aspect_impl(target, ctx):
+  if ctx.rule.kind not in _rust_rules:
+    return []
+
+  info = ctx.toolchains["@io_bazel_rules_rust//rust:toolchain"]
+
+  # extract the crate_root path
+  edition = ctx.rule.attr.edition
+  if not edition:
+    edition = info.default_edition
+
+  crate_name = ctx.rule.attr.name
+
+  crate_root = fetch_crate_root_file(ctx)
 
   cfgs = []
   for feature in ctx.rule.attr.crate_features:
@@ -82,16 +88,11 @@ def _rust_project_aspect_impl(target, ctx):
       cfgs.append(flag[6:])
   env = ctx.rule.attr.rustc_env
 
-  deps = []
-  transitive_deps = []
-  for dep in ctx.rule.attr.deps:
-    deps.append(dep[TargetInfo])
-    transitive_deps.append(dep[TargetInfo])
-    if TargetInfo not in dep:
-      continue
-    transitive_deps.extend(dep[TargetInfo].dependencies)
+  deps = [dep[RustTargetInfo] for dep in ctx.rule.attr.deps if RustTargetInfo in dep]
+  transitive_deps = depset(direct = deps, transitive =
+      [dep[RustTargetInfo].transitive_deps for dep in ctx.rule.attr.deps])
 
-  return [TargetInfo(
+  return [RustTargetInfo(
       name = crate_name,
       edition = edition,
       cfgs = cfgs,
@@ -189,12 +190,12 @@ def _rust_project_impl(ctx):
   idx = populate_sysroot(ctx, crate_mapping, output)
 
   for target in ctx.attr.targets:
-    for dep in target[TargetInfo].transitive_deps:
+    for dep in target[RustTargetInfo].transitive_deps.to_list():
       crate = create_crate(dep)
       crate_mapping[crate["ID"]] = idx
       idx += 1
       output["crates"].append(crate)
-  crate = create_crate(target[TargetInfo])
+  crate = create_crate(target[RustTargetInfo])
   output["crates"].append(crate)
 
   # Go through the targets a second time and fill in their dependencies

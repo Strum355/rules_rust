@@ -195,16 +195,11 @@ filegroup(
 )
 """
 
-def BUILD_for_clippy(target_triple):
-    """Emits a BUILD file the clippy's extracted files."""
-    return BUILD_for_stdlib(target_triple)
-
 def BUILD_for_rustc_src():
     """Emits a BUILD file for the rustc src extracted files."""
 
     return """
 load("@io_bazel_rules_rust//rust:toolchain.bzl", "rust_toolchain")
-
 filegroup(
     name = "rustc_src",
     srcs = glob(
@@ -216,7 +211,7 @@ filegroup(
 )
 """
 
-def BUILD_for_stdlib(target_triple):
+def BUILD_for_clippy(target_triple):
     """Emits a BUILD file the stdlib .tar.gz."""
 
     system = triple_to_system(target_triple)

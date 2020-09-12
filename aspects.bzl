@@ -37,6 +37,7 @@ RustTargetInfo = provider(
         'transitive_deps' : 'closure of all transitive dependencies',
         'cfgs' : 'compilation cfgs',
         'env' : 'Environment variables, used for the `env!` macro',
+        'version' : 'create version'
     }
 )
 
@@ -91,6 +92,8 @@ def _rust_project_aspect_impl(target, ctx):
   deps = [dep[RustTargetInfo] for dep in ctx.rule.attr.deps if RustTargetInfo in dep]
   transitive_deps = depset(direct = deps, transitive = [dep[RustTargetInfo].transitive_deps for dep in ctx.rule.attr.deps if RustTargetInfo in dep])
 
+  version = ctx.rule.attr.version.replace('.', '_')
+
   return [RustTargetInfo(
       name = crate_name,
       edition = edition,
@@ -98,7 +101,8 @@ def _rust_project_aspect_impl(target, ctx):
       root= crate_root,
       env=env,
       dependencies = deps,
-      transitive_deps = transitive_deps)]
+      transitive_deps = transitive_deps,
+      version = version)]
 
 rust_project_aspect = aspect(
     attr_aspects = ["deps"],
@@ -106,11 +110,14 @@ rust_project_aspect = aspect(
     toolchains = [ "@io_bazel_rules_rust//rust:toolchain" ]
 )
 
-def create_crate(target):
+def create_crate(ctx, target):
+  root = ctx.attr.exec_root
+  info = ctx.toolchains["@io_bazel_rules_rust//rust:toolchain"]
+
   crate = dict()
   crate["name"] = target.name
   crate["ID"] = "ID-" + target.name
-  crate["root_module"] = target.root
+  crate["root_module"] = target.root if target.root not None else root + "/" + target.name + "/" + info.rustc_src.label.workspace_root + "/src/lib.rs"
   crate["edition"] = target.edition
   # TODO(bwb): smarter heuristic for workpace member indexing
   crate["is_workspace_member"] = True
@@ -190,11 +197,11 @@ def _rust_project_impl(ctx):
 
   for target in ctx.attr.targets:
     for dep in target[RustTargetInfo].transitive_deps.to_list():
-      crate = create_crate(dep)
+      crate = create_crate(ctx, dep)
       crate_mapping[crate["ID"]] = idx
       idx += 1
       output["crates"].append(crate)
-  crate = create_crate(target[RustTargetInfo])
+  crate = create_crate(ctx, target[RustTargetInfo])
   output["crates"].append(crate)
 
   # Go through the targets a second time and fill in their dependencies

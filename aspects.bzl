@@ -89,8 +89,7 @@ def _rust_project_aspect_impl(target, ctx):
   env = ctx.rule.attr.rustc_env
 
   deps = [dep[RustTargetInfo] for dep in ctx.rule.attr.deps if RustTargetInfo in dep]
-  transitive_deps = depset(direct = deps, transitive =
-      [dep[RustTargetInfo].transitive_deps for dep in ctx.rule.attr.deps])
+  transitive_deps = depset(direct = deps, transitive = [dep[RustTargetInfo].transitive_deps for dep in ctx.rule.attr.deps if RustTargetInfo in dep])
 
   return [RustTargetInfo(
       name = crate_name,
